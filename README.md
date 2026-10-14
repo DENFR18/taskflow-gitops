@@ -136,3 +136,105 @@ Les modifications manuelles faites avec `kubectl` ont été corrigées par **Arg
 **Pourquoi git revert ?**
 
 `git revert` ajoute un nouveau commit qui annule le précédent, sans réécrire l'historique. Le retour arrière passe donc par le même circuit qu'un déploiement : PR, approbation du binôme, ruleset (le force push étant interdit sur `main`, un `git reset` ne serait de toute façon pas possible). L'historique garde la trace de qui a annulé quoi et quand, et Git reste la seule source de vérité. À l'inverse, un `kubectl rollout undo` serait une dérive comme les autres, qu'Argo CD annulerait immédiatement grâce au self-heal.
+---
+
+## Lab de l'après-midi : Blue-Green, Canary et version défectueuse
+
+Heures de Paris. Le Deployment est remplacé par un **Rollout** Argo Rollouts (`apps/taskflow/rollout.yaml`), toujours déployé par PR via Argo CD.
+
+### 1. Blue-Green
+
+**Mise en place (PR #6, merge à 14:48:08).** Le Deployment devient un Rollout en stratégie BlueGreen, avec un service `taskflow` (actif) et un service `taskflow-preview`. Argo CD synchronise et l'application repasse en Healthy.
+
+![Rollout BlueGreen en 1.0.0](docs/images/bg-rollout-1.0.0.png)
+
+![Synchronisation Argo CD après la PR #6](docs/images/bg-pr6-sync.png)
+
+![Tous les appels répondent en 1.0.0](docs/images/bg-observe-1.0.0.png)
+
+**Déploiement de la 1.1.0 (PR #7, merge à 14:55:09).** La nouvelle version démarre en parallèle (8 pods au total) et le Rollout se met en pause (`BlueGreenPause`) : la 1.0.0 reste `stable, active`, la 1.1.0 est seulement `preview`.
+
+![Rollout en pause, 1.1.0 en preview](docs/images/bg-paused-preview.png)
+
+Les deux services répondent en même temps, chacun avec sa version : le trafic des utilisateurs reste sur la 1.0.0 pendant qu'on teste la 1.1.0 via le service de preview.
+
+![taskflow en 1.0.0, taskflow-preview en 1.1.0](docs/images/bg-observe-deux-versions.png)
+
+**Promotion à 14:56:32** avec `kubectl argo rollouts promote`. Le basculement est instantané : les 40 requêtes suivantes répondent toutes en 1.1.0.
+
+![Promotion et bascule en 1.1.0](docs/images/bg-apres-promote.png)
+
+Après la promotion, la 1.1.0 est `stable, active` et l'ancien ReplicaSet (1.0.0) est réduit à zéro.
+
+![État final Blue-Green](docs/images/bg-final-1.1.0.png)
+
+![Services taskflow et taskflow-preview](docs/images/bg-services.png)
+
+### 2. Canary
+
+**Passage en Canary (PR #8, merge à 15:03:30).** Les étapes sont : 25 % puis pause manuelle, 50 % pendant 60 s, 75 % pendant 30 s, puis 100 %. Sans maillage de service, la part de trafic suit la proportion de pods (4 replicas : 25 % = 1 pod sur 4).
+
+![Rollout Canary en 1.1.0 (étape 6/6)](docs/images/canary-initial-1.1.0.png)
+
+![Heures de merge des PR #7 et #8](docs/images/canary-heures-merge.png)
+
+**Déploiement de la 2.0.0 (merge à 15:12:40).** Le Rollout s'arrête à l'étape 1/6 : 1 pod en 2.0.0 (canary) et 3 pods en 1.1.0 (stable), soit 25 % du trafic.
+
+![Canary en pause à 25 %](docs/images/canary-paused-25.png)
+
+Sur 40 requêtes, 12 répondent en 2.0.0 et 28 en 1.1.0 : la répartition suit à peu près les 25 %.
+
+![Répartition 28 / 12](docs/images/canary-observe-25.png)
+
+**Promotions.** Une première promotion à 15:13:46 lance les paliers suivants, une seconde à 15:14:11 termine le déploiement. Après la première, 32 requêtes sur 40 répondent déjà en 2.0.0, puis toutes après la seconde.
+
+![Première promotion à 15:13:46](docs/images/canary-promote-1.png)
+
+![Répartition 8 / 32 après la première promotion](docs/images/canary-observe-apres-promote.png)
+
+![Promotions et résultat final : 40 réponses en 2.0.0](docs/images/canary-promotes-recap.png)
+
+![Rollout Healthy, 4 pods en 2.0.0](docs/images/canary-final-2.0.0.png)
+
+### 3. Version défectueuse : la 2.1.0 est stoppée
+
+**Déploiement de la 2.1.0 (merge à 15:55:14, sync Argo CD à 15:55:41).** Le Rollout démarre le canary et se met en pause à 25 % (`RolloutPaused`, 15:55:48).
+
+![Canary 2.1.0 en cours de démarrage](docs/images/canary-210-progressing.png)
+
+![Rollout en pause et événements Argo CD](docs/images/canary-210-paused-events.png)
+
+**Le canary est défectueux.** Sur 40 requêtes, 30 répondent en 2.0.0, 6 en 2.1.0 et **4 en erreur HTTP 500** : la nouvelle version casse une partie des appels, mais l'impact reste limité à la part du trafic envoyée au canary.
+
+![Réponses mélangées avec des erreurs 500](docs/images/canary-210-observe-500.png)
+
+**Arrêt du déploiement (15:57:09).** Le Rollout est abandonné (`RolloutAborted: Rollout aborted update to revision 4`) : le ReplicaSet canary est réduit à zéro et les pods 2.0.0 reviennent à 4.
+
+![Rollout Degraded, canary réduit à zéro](docs/images/canary-210-degraded.png)
+
+![Événements Rollout : étape 1/6 puis abort](docs/images/canary-210-events-abort.png)
+
+Les 40 requêtes suivantes répondent toutes en 2.0.0 : les utilisateurs ne subissent plus d'erreurs.
+
+![Retour à 40 réponses en 2.0.0](docs/images/canary-210-observe-apres-abort.png)
+
+**État dans Argo CD.** Git demande toujours la 2.1.0 alors que le cluster tourne en 2.0.0 : le Rollout reste `Degraded` (avec `Step 0/6`, `SetWeight 0`) et l'application est `Synced / Degraded`.
+
+![Rollout aborté et application Degraded](docs/images/canary-210-app-degraded.png)
+
+Après un rafraîchissement (`argocd.argoproj.io/refresh=normal`), l'application repasse en `Synced / Healthy`. Le Rollout, lui, reste en `Degraded` tant que Git contient la 2.1.0 : pour que Git et le cluster soient de nouveau alignés, il faut une PR qui revient à la 2.0.0 (ou qui corrige la 2.1.0).
+
+![Application Healthy après rafraîchissement](docs/images/canary-210-refresh-healthy.png)
+
+### Journal des déploiements de l'après-midi
+
+| Heure | Action | Commit / PR | Résultat |
+|---|---|---|---|
+| 14:48:08 | Merge Blue-Green | PR #6 (`234541b`) | Rollout BlueGreen en 1.0.0, Healthy |
+| 14:55:09 | Merge image 1.1.0 | PR #7 (`5e870f3`) | Pause : 1.0.0 active, 1.1.0 en preview |
+| 14:56:32 | `kubectl argo rollouts promote` | — | Bascule instantanée en 1.1.0 |
+| 15:03:30 | Merge stratégie Canary | PR #8 (`4fe3e89`) | Rollout Canary en 1.1.0 |
+| 15:12:40 | Merge image 2.0.0 | `a3708f2` | Pause à 25 % (1 pod sur 4) |
+| 15:13:46 / 15:14:11 | Deux `promote` | — | Déploiement complet en 2.0.0 |
+| 15:55:14 | Merge image 2.1.0 | `922cb3b` | Pause à 25 %, erreurs HTTP 500 |
+| 15:57:09 | Rollout abandonné | — | Retour à 4 pods en 2.0.0, application Degraded puis Healthy |
