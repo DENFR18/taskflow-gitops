@@ -3,16 +3,18 @@
 #
 # Image concernée : ghcr.io/9m7fjfpv9k-cyber/taskflow:2.2.0
 # Ouverte le : 2026-10-15
-# Expire le : 2026-11-15 (la syntaxe exp: fait échouer de nouveau le scan après cette date)
+# La syntaxe exp: fait échouer de nouveau le scan après la date indiquée.
 #
 # Justification commune : l'image est publiée dans le seul registre autorisé par PSSI-R2,
 # que nous ne pouvons pas mettre à jour. La correction est demandée en amont
 # (reconstruction de l'image avec des dépendances à jour).
 # Le système Debian de l'image ne présente aucune vulnérabilité HIGH/CRITICAL.
+# Analyse faite sur le code de cicd-fil-rouge (app/), qui peut différer légèrement
+# du code embarqué dans l'image 2.2.0.
 
 # --- starlette 0.41.3 (tirée par fastapi 0.115.6) ---
 # Failles sur StaticFiles, les réponses de fichiers (en-tête Range) et request.form().
-# TaskFlow est une API JSON qui n'utilise aucune de ces fonctions (vérifié dans app/).
+# Aucune de ces fonctions n'est utilisée dans app/ (recherche faite le 2026-10-15).
 # Correction attendue : starlette >= 1.3.1, via une version récente de fastapi.
 CVE-2025-62727 exp:2026-11-15
 CVE-2026-48818 exp:2026-11-15
@@ -20,11 +22,14 @@ CVE-2026-54283 exp:2026-11-15
 
 # --- urllib3 1.26.20 (tirée par requests 2.25.1) ---
 # Failles du client HTTP (décompression, redirections, proxy HTTPS).
-# TaskFlow ne fait aucune requête HTTP sortante (vérifié dans app/).
-# Correction attendue : urllib3 >= 2.8.0, ou suppression de requests si inutile.
-CVE-2025-66418 exp:2026-11-15
-CVE-2025-66471 exp:2026-11-15
-CVE-2026-21441 exp:2026-11-15
-CVE-2026-44431 exp:2026-11-15
-CVE-2026-97687 exp:2026-11-15
-CVE-2026-97689 exp:2026-11-15
+# ATTENTION : requests est importé par app/notifications.py. L'application peut donc
+# faire des requêtes HTTP sortantes, et ces failles sont potentiellement exploitables.
+# Exception courte, le temps d'analyser l'usage réel de notifications.py
+# (URL appelée, redirections, proxy) et de décider : correction en amont ou maintien justifié.
+# Correction attendue : urllib3 >= 2.8.0 (requests récent), ou suppression de requests si inutile.
+CVE-2025-66418 exp:2026-10-22
+CVE-2025-66471 exp:2026-10-22
+CVE-2026-21441 exp:2026-10-22
+CVE-2026-44431 exp:2026-10-22
+CVE-2026-97687 exp:2026-10-22
+CVE-2026-97689 exp:2026-10-22
