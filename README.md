@@ -53,7 +53,7 @@ La branche `main` est protégée par un ruleset : PR obligatoire, 1 approbation,
 
 ---
 
-## Lab du mardi matin : déployer par PR, provoquer une dérive, revenir en arrière
+## Lab du mercredi matin : déployer par PR, provoquer une dérive, revenir en arrière
 
 ### Configuration
 
@@ -141,7 +141,7 @@ Les modifications manuelles faites avec `kubectl` ont été corrigées par **Arg
 
 ---
 
-## Lab du mardi après-midi : 1.0.0 → Blue-Green → 1.1.0 → Canary → 2.0.0
+## Lab du mercredi après-midi : 1.0.0 → Blue-Green → 1.1.0 → Canary → 2.0.0
 
 Le Deployment est remplacé par une ressource `Rollout` d'Argo Rollouts. Toutes les modifications passent par PR ; seules les commandes `promote` et `abort` sont faites à la main, car elles pilotent le déploiement en cours sans changer l'état voulu.
 
@@ -298,3 +298,69 @@ Heures de Paris. Sources : `git log`, événements Argo CD et Argo Rollouts, log
 | 11:44:21 | Merge PR image 2.2.0 | `21c8947` | IB432 | 2.2.0 | Canary 25 % à 11:44:51, AnalysisRun à 11:45:11 | — |
 | 11:45:48 | **AnalysisRun Successful** | — | — | 2.2.0 | Step 3/7, montée à 50 % | k6 : 0,00 % d'erreurs, p95 = 11,25 ms |
 | ≈ 11:47 | Fin de la montée | — | — | 2.2.0 | Healthy, step 7/7, Synced + Healthy | 4 pods en 2.2.0 |
+
+---
+
+## Lab C du jeudi après-midi : la mini-PSSI en quality gates
+
+Les règles de [`policies/pssi.md`](policies/pssi.md) sont vérifiées automatiquement sur chaque PR par le workflow [`.github/workflows/pssi.yml`](.github/workflows/pssi.yml). Les deux jobs, **PSSI manifests (conftest)** et **PSSI images (Trivy)**, sont des checks obligatoires du ruleset `protect-main` : une règle non respectée bloque le merge.
+
+![Ruleset protect-main : checks obligatoires](docs/images/pssi-ruleset.png)
+
+### Règle → contrôle → outil → preuve
+
+| Règle | Contrôle automatique | Outil | Preuve |
+|---|---|---|---|
+| **PSSI-R1** : tag explicite, jamais `latest` | Deux règles `deny` dans `policies/kubernetes.rego` : image sans `:` ou finissant par `:latest` | conftest (job *PSSI manifests*) | PR #20 avec `nginx:latest` : `FAIL - PSSI-R1 : le conteneur 'taskflow' utilise le tag latest`, merge bloqué |
+| **PSSI-R2** : images du registre `ghcr.io/9m7fjfpv9k-cyber/` uniquement | Règle `deny` sur `not startswith(c.image, registre_autorise)` | conftest (job *PSSI manifests*) | PR #20 : `FAIL - PSSI-R2 : l'image ... ne vient pas du registre autorisé (nginx:latest)`, merge bloqué |
+| **PSSI-R3** : limite mémoire sur chaque conteneur | Règle `deny` sur `not c.resources.limits.memory`, écrite par nous | conftest (job *PSSI manifests*) | Le Rollout déclare `limits.memory: 256Mi` : R3 passe sur `main` (25/25 tests) |
+| **PSSI-R4** : pods non-root (`runAsNonRoot: true`) | Règle `pod_non_root` + `deny`, écrite par nous, limitée aux charges de travail | conftest (job *PSSI manifests*) | Avant correction : `FAIL - PSSI-R4 : le Rollout 'taskflow' ne déclare pas securityContext.runAsNonRoot` (25 tests, 1 échec). Après : pod en `{"runAsNonRoot":true}`, `uid=10001(appuser)` |
+| **PSSI-R5** : aucune vulnérabilité HIGH/CRITICAL corrigeable | Scan `--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` des images du registre autorisé | Trivy (job *PSSI images*) | Premier scan de la 2.2.0 : 9 HIGH (starlette 0.41.3, urllib3 1.26.20), job rouge. Exception datée dans `.trivyignore`, justifiée et vérifiée, puis job vert |
+
+### R4 : de la règle au pod
+
+![conftest : R4 en échec](docs/images/pssi-conftest-r4.png)
+
+Après l'ajout de `securityContext.runAsNonRoot: true` au pod, le canary s'est déroulé normalement (revision 9, AnalysisRun Successful) : l'image tourne avec l'utilisateur non privilégié `appuser` (UID 10001).
+
+![Canary 2.2.0 en revision 9](docs/images/pssi-r4-canary.png)
+
+![R4 effectif sur le pod](docs/images/pssi-r4-pod.png)
+
+### R5 : l'exception Trivy
+
+![Trivy : 9 vulnérabilités HIGH](docs/images/pssi-trivy-rouge.png)
+
+L'image ne peut pas être reconstruite de notre côté : PSSI-R2 n'autorise que le registre `ghcr.io/9m7fjfpv9k-cyber/`. Nous avons donc ouvert une **exception écrite, justifiée, datée et limitée** dans [`.trivyignore`](.trivyignore), validée en PR :
+
+| Paquet | CVE | Justification | Expiration |
+|---|---|---|---|
+| starlette 0.41.3 | 3 CVE (Range, `StaticFiles`, `request.form()`) | Aucune de ces fonctions n'est utilisée dans `app/` | 2026-11-15 |
+| urllib3 1.26.20 | 6 CVE (client HTTP) | `requests` n'est utilisé que par `notifications.py`, qui ne fait rien si `NOTIFY_WEBHOOK_URL` est vide. Vérifié : valeur par défaut vide, variable absente du Rollout et des pods. **Exception invalide dès que les notifications sont activées** | 2026-11-15 |
+
+La syntaxe `exp:` de Trivy rend l'exception réellement limitée : après la date, le scan échoue de nouveau.
+
+Vérification faite avant de justifier l'exception urllib3 : `notify()` n'est appelée qu'à la création d'une tâche, `NOTIFY_WEBHOOK_URL` vaut `""` par défaut et n'existe pas dans les pods.
+
+![Vérification de NOTIFY_WEBHOOK_URL](docs/images/pssi-urllib3-verif.png)
+
+Avec l'exception, le job Trivy passe au vert :
+
+![Trivy : job vert](docs/images/pssi-trivy-vert.png)
+
+L'exception a été construite en trois PR successives, toutes relues et approuvées :
+1. première version, dont la justification urllib3 (« aucune requête sortante ») s'est révélée fausse ;
+2. correction : avertissement explicite et échéance raccourcie au 2026-10-22, le temps d'analyser l'usage de `requests` ;
+3. justification finale, après vérification du code et du pod, avec la condition d'invalidité ; l'échéance est remise au 2026-11-15.
+
+### La PR non conforme bloquée
+
+La PR #20 remplace l'image par `nginx:latest`. conftest échoue sur PSSI-R1 (tag `latest`) et PSSI-R2 (registre non autorisé). Même **approuvée par le binôme**, la PR reste impossible à merger : le check requis *PSSI manifests (conftest)* est en échec. Trivy reste vert, car il ne scanne que les images du registre autorisé ; c'est R2 qui écarte l'image en amont.
+
+![Checks obligatoires en échec](docs/images/pssi-checks-requis.png)
+
+![PR bloquée par la PSSI malgré l'approbation](docs/images/pssi-pr-bloquee.png)
+
+![Log conftest : R1 et R2](docs/images/pssi-conftest-r1-r2.png)
+
+La PR a été fermée sans être mergée.
