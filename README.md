@@ -19,7 +19,7 @@ Le script crée un cluster local `kind`, installe Argo CD et Argo Rollouts,
 puis télécharge les images des labs. Comptez 5 à 15 minutes.
 Il peut être relancé sans risque.
 
-> **Note sur notre environnement.** Sur le poste de Denilsson, le trafic HTTPS sortant de WSL2 est bloqué par la politique de sécurité du poste (DNS et ICMP fonctionnent, TCP 443 expire, y compris en mode réseau mirrored). L'installation a donc été faite directement sous Windows avec un équivalent PowerShell de `install.sh`, en passant par Docker Desktop : même cluster `kind-cicd`, Argo CD v3.5.3 et Argo Rollouts v1.10.0.
+> **Note sur notre environnement.** Sur le poste de Denilsson, le trafic HTTPS sortant de WSL2 est bloqué par la politique de sécurité du poste (DNS et ICMP fonctionnent, TCP 443 expire, y compris en mode réseau mirrored). Nous avons démarré le premier lab sur le poste d'Illies pendant que l'environnement était installé directement sous Windows, avec un équivalent PowerShell de `install.sh` passant par Docker Desktop : même cluster `kind-cicd`, Argo CD v3.5.3 et Argo Rollouts v1.10.0. Les mesures des journaux ci-dessous proviennent de ce cluster.
 
 ## Structure
 
@@ -45,11 +45,15 @@ Il peut être relancé sans risque.
 
 <!-- Noms du binôme -->
 - Denilsson ([@DENFR18](https://github.com/DENFR18)) : propriétaire du fork
-- Illies ([@IB432](https://github.com/IB432)) : collaborateur (write)
+- Illies ([@IB432](https://github.com/IB432)) : collaborateur (write), relecteur des PR
+
+### Notre fonctionnement en binôme
+
+La branche `main` est protégée par un ruleset : PR obligatoire, 1 approbation, force push et suppression interdits. Aucune modification n'a donc pu atteindre `main`, et donc le cluster, sans la relecture et l'approbation de l'autre membre du binôme. La colonne « Approuvée par » des journaux indique qui a validé chaque changement.
 
 ---
 
-## Lab du matin : déployer par PR, provoquer une dérive, revenir en arrière
+## Lab du mardi matin : déployer par PR, provoquer une dérive, revenir en arrière
 
 ### Configuration
 
@@ -64,8 +68,6 @@ L'application Argo CD (`argocd/application.yaml`) pointe sur notre fork :
 | `selfHeal` | `true` | Toute modification manuelle du cluster est annulée |
 | `prune` | `true` | Une ressource supprimée de Git est supprimée du cluster |
 | `timeout.reconciliation` | `60s` | Argo CD relit Git toutes les 60 s (réglé par `install.sh`) |
-
-La branche `main` est protégée par un ruleset : PR obligatoire, 1 approbation, force push et suppression interdits. Chaque changement de cet exercice est passé par une PR approuvée par le binôme.
 
 ### Étapes
 
@@ -93,7 +95,7 @@ La branche `main` est protégée par un ruleset : PR obligatoire, 1 approbation,
 
    ![Cycles de self-heal](docs/images/selfheal-describe.png)
 
-5. **Retour en 1.0.0 avec le bouton Revert de GitHub (PR #4).** Le revert passe par le même circuit qu'un déploiement : la PR est bloquée tant que le binôme ne l'a pas approuvée.
+5. **Retour en 1.0.0 avec le bouton Revert de GitHub (PR #4).** Le revert passe par le même circuit qu'un déploiement : la PR reste bloquée tant que le binôme ne l'a pas approuvée.
 
    ![PR de revert en attente de review](docs/images/pr-revert.png)
 
@@ -109,13 +111,13 @@ Les événements de l'application Argo CD retracent toute la séquence (heures e
 
 Heures de Paris. Les heures de merge proviennent des commits de merge (`git log`), celles de synchronisation des événements Argo CD.
 
-| Heure | Action | Commit / PR | Version attendue (Git) | État Argo CD | Délai observé |
-|---|---|---|---|---|---|
-| 12:22:00 | `kubectl apply` de l'Application | PR #2 (`abcc67a`) | 1.0.0 | Synced / Healthy | — |
-| 13:35:17 | Merge PR image 2.0.0 | PR #3 (`5247aa8`) | 2.0.0 | Sync auto à 13:36:09, Healthy à 13:36:21 | Détection en 52 s, déploiement complet en 1 min 04 s |
-| 13:39:13 | `kubectl scale --replicas=1` (dérive) | — | 4 replicas | OutOfSync → sync auto immédiate → Healthy à 13:39:20 | Correction en 0 s, retour à 4 pods en 7 s |
-| 13:41:10 | `kubectl set image ...:1.1.0` (dérive) | — | 2.0.0 | Corrigé à 13:41:10 ; nouvel OutOfSync à 13:41:24, re-sync à 13:42:04, Healthy à 13:42:11 | 0 s, puis 40 s sur le second cycle |
-| 13:45:54 | Merge PR Revert (bouton GitHub) | PR #4 (`19ce3cb`) | 1.0.0 | Sync auto à 13:46:29, Healthy à 13:46:37 | Détection en 35 s, retour complet en 43 s |
+| Heure | Action | Commit / PR | Approuvée par | Version attendue (Git) | État Argo CD | Délai observé |
+|---|---|---|---|---|---|---|
+| 12:22:00 | `kubectl apply` de l'Application | PR #2 (`abcc67a`) | DENFR18 | 1.0.0 | Synced / Healthy | — |
+| 13:35:17 | Merge PR image 2.0.0 | PR #3 (`5247aa8`) | IB432 | 2.0.0 | Sync auto à 13:36:09, Healthy à 13:36:21 | Détection en 52 s, déploiement complet en 1 min 04 s |
+| 13:39:13 | `kubectl scale --replicas=1` (dérive) | — | — | 4 replicas | OutOfSync → sync auto immédiate → Healthy à 13:39:20 | Correction en 0 s, retour à 4 pods en 7 s |
+| 13:41:10 | `kubectl set image ...:1.1.0` (dérive) | — | — | 2.0.0 | Corrigé à 13:41:10 ; nouvel OutOfSync à 13:41:24, re-sync à 13:42:04, Healthy à 13:42:11 | 0 s, puis 40 s sur le second cycle |
+| 13:45:54 | Merge PR Revert (bouton GitHub) | PR #4 (`19ce3cb`) | IB432 | 1.0.0 | Sync auto à 13:46:29, Healthy à 13:46:37 | Détection en 35 s, retour complet en 43 s |
 
 Heures de merge relevées avec `git log` :
 
@@ -127,7 +129,7 @@ Heures de merge relevées avec `git log` :
 
 **Push ou pull ?**
 
-Pull. Aucun outil ne pousse les changements vers le cluster : c'est Argo CD, installé dans le cluster, qui relit régulièrement le dépôt Git et applique ce qui a changé. Les mesures le montrent : après un merge, le déploiement n'est pas immédiat, il arrive au prochain cycle de lecture (52 s pour la 2.0.0, 35 s pour le revert, toujours sous les 60 s de `timeout.reconciliation`). Conséquence côté sécurité : GitHub n'a besoin d'aucun accès au cluster, c'est le cluster qui vient chercher l'état voulu.
+Pull. Aucun outil ne pousse les changements vers le cluster : c'est Argo CD, installé dans le cluster, qui relit régulièrement le dépôt Git et applique ce qui a changé. Nos mesures le montrent : après un merge, le déploiement n'est pas immédiat, il arrive au prochain cycle de lecture (52 s pour la 2.0.0, 35 s pour le revert, toujours sous les 60 s de `timeout.reconciliation`). Conséquence côté sécurité : GitHub n'a besoin d'aucun accès au cluster, c'est le cluster qui vient chercher l'état voulu.
 
 **Qui a corrigé quoi ?**
 
@@ -136,105 +138,163 @@ Les modifications manuelles faites avec `kubectl` ont été corrigées par **Arg
 **Pourquoi git revert ?**
 
 `git revert` ajoute un nouveau commit qui annule le précédent, sans réécrire l'historique. Le retour arrière passe donc par le même circuit qu'un déploiement : PR, approbation du binôme, ruleset (le force push étant interdit sur `main`, un `git reset` ne serait de toute façon pas possible). L'historique garde la trace de qui a annulé quoi et quand, et Git reste la seule source de vérité. À l'inverse, un `kubectl rollout undo` serait une dérive comme les autres, qu'Argo CD annulerait immédiatement grâce au self-heal.
+
 ---
 
-## Lab de l'après-midi : Blue-Green, Canary et version défectueuse
+## Lab du mardi après-midi : 1.0.0 → Blue-Green → 1.1.0 → Canary → 2.0.0
 
-Heures de Paris. Le Deployment est remplacé par un **Rollout** Argo Rollouts (`apps/taskflow/rollout.yaml`), toujours déployé par PR via Argo CD.
+Le Deployment est remplacé par une ressource `Rollout` d'Argo Rollouts. Toutes les modifications passent par PR ; seules les commandes `promote` et `abort` sont faites à la main, car elles pilotent le déploiement en cours sans changer l'état voulu.
 
-### 1. Blue-Green
+Point de départ, mesuré avec `observe.sh` (40 requêtes depuis le cluster) :
 
-**Mise en place (PR #6, merge à 14:48:08).** Le Deployment devient un Rollout en stratégie BlueGreen, avec un service `taskflow` (actif) et un service `taskflow-preview`. Argo CD synchronise et l'application repasse en Healthy.
+![Production en 1.0.0](docs/images/observe-1.0.0.png)
 
-![Rollout BlueGreen en 1.0.0](docs/images/bg-rollout-1.0.0.png)
+### A. Blue-Green
 
-![Synchronisation Argo CD après la PR #6](docs/images/bg-pr6-sync.png)
+1. **Passage au Rollout Blue-Green (PR #6).** Argo CD crée le Rollout et `taskflow-preview`, et supprime le Deployment (`prune`). Le service `taskflow` n'est pas recréé : aucune coupure.
 
-![Tous les appels répondent en 1.0.0](docs/images/bg-observe-1.0.0.png)
+   ![Rollout Blue-Green en 1.0.0](docs/images/bg-rollout-1.0.0.png)
 
-**Déploiement de la 1.1.0 (PR #7, merge à 14:55:09).** La nouvelle version démarre en parallèle (8 pods au total) et le Rollout se met en pause (`BlueGreenPause`) : la 1.0.0 reste `stable, active`, la 1.1.0 est seulement `preview`.
+2. **Image 1.1.0 (PR #7).** La 1.1.0 démarre à côté de la 1.0.0 et le Rollout se met en pause : **8 pods** tournent en même temps.
 
-![Rollout en pause, 1.1.0 en preview](docs/images/bg-paused-preview.png)
+   ![Blue-Green en pause](docs/images/bg-paused-preview.png)
 
-Les deux services répondent en même temps, chacun avec sa version : le trafic des utilisateurs reste sur la 1.0.0 pendant qu'on teste la 1.1.0 via le service de preview.
+3. **Comparaison des deux services.** `taskflow` répond 100 % en 1.0.0, `taskflow-preview` 100 % en 1.1.0.
 
-![taskflow en 1.0.0, taskflow-preview en 1.1.0](docs/images/bg-observe-deux-versions.png)
+   ![taskflow contre taskflow-preview](docs/images/bg-observe-preview.png)
 
-**Promotion à 14:56:32** avec `kubectl argo rollouts promote`. Le basculement est instantané : les 40 requêtes suivantes répondent toutes en 1.1.0.
+4. **Promote.** Bascule instantanée de `taskflow` vers la 1.1.0, puis suppression des pods 1.0.0 au bout de 30 s (`scaleDownDelaySeconds`).
 
-![Promotion et bascule en 1.1.0](docs/images/bg-apres-promote.png)
+   ![Promote](docs/images/bg-promote.png)
 
-Après la promotion, la 1.1.0 est `stable, active` et l'ancien ReplicaSet (1.0.0) est réduit à zéro.
+   ![Après le promote](docs/images/bg-apres-promote.png)
 
-![État final Blue-Green](docs/images/bg-final-1.1.0.png)
+### B. Canary
 
-![Services taskflow et taskflow-preview](docs/images/bg-services.png)
+1. **Passage en Canary, toujours en 1.1.0 (PR #8).** Seule la stratégie change : aucun pod recréé, `taskflow-preview` supprimé.
 
-### 2. Canary
+   ![Canary en 1.1.0](docs/images/canary-1.1.0.png)
 
-**Passage en Canary (PR #8, merge à 15:03:30).** Les étapes sont : 25 % puis pause manuelle, 50 % pendant 60 s, 75 % pendant 30 s, puis 100 %. Sans maillage de service, la part de trafic suit la proportion de pods (4 replicas : 25 % = 1 pod sur 4).
+2. **Image 2.0.0 (PR #9).** Palier de 25 % : 1 pod en 2.0.0 et 3 en 1.1.0, soit **4 pods au total**.
 
-![Rollout Canary en 1.1.0 (étape 6/6)](docs/images/canary-initial-1.1.0.png)
+   ![Canary à 25 %](docs/images/canary-25-2.0.0.png)
 
-![Heures de merge des PR #7 et #8](docs/images/canary-heures-merge.png)
+   ![Trafic au palier de 25 %](docs/images/canary-25-observe.png)
 
-**Déploiement de la 2.0.0 (merge à 15:12:40).** Le Rollout s'arrête à l'étape 1/6 : 1 pod en 2.0.0 (canary) et 3 pods en 1.1.0 (stable), soit 25 % du trafic.
+3. **Promote jusqu'à 100 %.** Un premier `promote` passe à 50 %, un second saute la pause de 60 s et passe à 75 %, puis le Rollout atteint 100 % seul.
 
-![Canary en pause à 25 %](docs/images/canary-paused-25.png)
+   ![Promotions et trafic](docs/images/canary-promotes-observe.png)
 
-Sur 40 requêtes, 12 répondent en 2.0.0 et 28 en 1.1.0 : la répartition suit à peu près les 25 %.
+   L'âge des pods 2.0.0 retrace l'escalier des paliers :
 
-![Répartition 28 / 12](docs/images/canary-observe-25.png)
+   ![2.0.0 à 100 %](docs/images/canary-100-pods.png)
 
-**Promotions.** Une première promotion à 15:13:46 lance les paliers suivants, une seconde à 15:14:11 termine le déploiement. Après la première, 32 requêtes sur 40 répondent déjà en 2.0.0, puis toutes après la seconde.
+4. **Image 2.1.0, puis abort.** Au palier de 25 %, Argo CD affiche l'application en **Suspended**, et la 2.1.0 renvoie des HTTP 500.
 
-![Première promotion à 15:13:46](docs/images/canary-promote-1.png)
+   ![2.1.0 en pause](docs/images/canary-2.1.0-suspended.png)
 
-![Répartition 8 / 32 après la première promotion](docs/images/canary-observe-apres-promote.png)
+   ![Erreurs HTTP 500](docs/images/canary-2.1.0-http500.png)
 
-![Promotions et résultat final : 40 réponses en 2.0.0](docs/images/canary-promotes-recap.png)
+   Après l'`abort`, le trafic revient entièrement en 2.0.0 :
 
-![Rollout Healthy, 4 pods en 2.0.0](docs/images/canary-final-2.0.0.png)
+   ![Après l'abort](docs/images/abort-degraded.png)
 
-### 3. Version défectueuse : la 2.1.0 est stoppée
+   ![Événements de l'abort](docs/images/abort-events.png)
 
-**Déploiement de la 2.1.0 (merge à 15:55:14, sync Argo CD à 15:55:41).** Le Rollout démarre le canary et se met en pause à 25 % (`RolloutPaused`, 15:55:48).
+   ![Trafic après l'abort](docs/images/abort-observe.png)
 
-![Canary 2.1.0 en cours de démarrage](docs/images/canary-210-progressing.png)
+   Mais Argo CD reste **Synced + Degraded** (`Updated: 0`) tant que Git demande la 2.1.0 :
 
-![Rollout en pause et événements Argo CD](docs/images/canary-210-paused-events.png)
+   ![Synced et Degraded](docs/images/abort-synced-degraded.png)
 
-**Le canary est défectueux.** Sur 40 requêtes, 30 répondent en 2.0.0, 6 en 2.1.0 et **4 en erreur HTTP 500** : la nouvelle version casse une partie des appels, mais l'impact reste limité à la part du trafic envoyée au canary.
+   Le revert de la PR 2.1.0 ramène l'ensemble en Healthy :
 
-![Réponses mélangées avec des erreurs 500](docs/images/canary-210-observe-500.png)
+   ![Après le revert](docs/images/revert-2.1.0-healthy.png)
 
-**Arrêt du déploiement (15:57:09).** Le Rollout est abandonné (`RolloutAborted: Rollout aborted update to revision 4`) : le ReplicaSet canary est réduit à zéro et les pods 2.0.0 reviennent à 4.
+### Journal des déploiements
 
-![Rollout Degraded, canary réduit à zéro](docs/images/canary-210-degraded.png)
+Heures de Paris. Les heures de merge proviennent de `git log`, les autres des événements Argo CD et Argo Rollouts. La répartition du trafic est mesurée avec `observe.sh` (40 requêtes depuis le cluster).
 
-![Événements Rollout : étape 1/6 puis abort](docs/images/canary-210-events-abort.png)
+#### A. Blue-Green
 
-Les 40 requêtes suivantes répondent toutes en 2.0.0 : les utilisateurs ne subissent plus d'erreurs.
+| Heure | Action | Commit / PR | Approuvée par | Version | État | Observation |
+|---|---|---|---|---|---|---|
+| 14:48:08 | Merge PR : Deployment → Rollout Blue-Green | PR #6 (`234541b`) | IB432 | 1.0.0 | Sync à 14:49:02, Healthy à 14:49:09 | Deployment supprimé (prune), service `taskflow` conservé, `taskflow-preview` créé. Aucune coupure |
+| 14:55:09 | Merge PR image 1.1.0 | PR #7 (`5e870f3`) | IB432 | 1.1.0 | Rollout **Paused** (BlueGreenPause) | **8 pods** (4 × 1.0.0 + 4 × 1.1.0). `taskflow` : 40 × 1.0.0 ; `taskflow-preview` : 40 × 1.1.0 |
+| 14:56:32 | `promote` | — | — | 1.1.0 | Healthy, 1.1.0 stable/active | `taskflow` : 40 × 1.1.0, HTTP 200. Bascule instantanée, pods 1.0.0 supprimés 30 s après |
 
-![Retour à 40 réponses en 2.0.0](docs/images/canary-210-observe-apres-abort.png)
+#### B. Canary
 
-**État dans Argo CD.** Git demande toujours la 2.1.0 alors que le cluster tourne en 2.0.0 : le Rollout reste `Degraded` (avec `Step 0/6`, `SetWeight 0`) et l'application est `Synced / Degraded`.
+| Heure | Action | Commit / PR | Approuvée par | Version | État | Observation |
+|---|---|---|---|---|---|---|
+| 15:03:30 | Merge PR : passage en Canary | PR #8 (`4fe3e89`) | IB432 | 1.1.0 | Healthy, step 6/6 | Aucun pod recréé, `taskflow-preview` supprimé (prune) |
+| 15:12:40 | Merge PR image 2.0.0 | PR #9 (`a3708f2`) | IB432 | 2.0.0 | Paused (CanaryPauseStep), step 1/6, 25 % | **4 pods** (1 × 2.0.0 + 3 × 1.1.0). Trafic : 12/40 en 2.0.0 (30 %) |
+| 15:13:46 | `promote` | — | — | 2.0.0 | Palier 50 % | — |
+| 15:14:11 | 2ᵉ `promote` | — | — | 2.0.0 | Palier 75 % (pause de 60 s du palier 50 % sautée) | Trafic : 32/40 en 2.0.0 (80 %) |
+| ≈ 15:14:45 | Fin automatique de la pause de 30 s | — | — | 2.0.0 | Healthy, step 6/6 | Trafic : 40 × 2.0.0, HTTP 200 |
+| 15:55:14 | Merge PR image 2.1.0 | `922cb3b` | IB432 | 2.1.0 | Sync à 15:55:41, Paused à 15:55:48 (Argo CD : **Suspended**) | 1 × 2.1.0 + 3 × 2.0.0. Trafic : 30 × 2.0.0 (200), 6 × 2.1.0 (200), **4 × HTTP 500** |
+| 15:57:09 | `abort` | — | — | 2.0.0 servie, 2.1.0 dans Git | **Synced + Degraded** | Canary supprimé, retour à 4 pods 2.0.0. Trafic : 40 × 2.0.0, HTTP 200 |
+| 15:59:47 | Merge PR Revert de la 2.1.0 | `b1a337a` | IB432 | 2.0.0 | **Synced + Healthy** | Git et cluster de nouveau cohérents, aucun pod recréé |
 
-![Rollout aborté et application Degraded](docs/images/canary-210-app-degraded.png)
+### Ce qu'a montré la 2.1.0
 
-Après un rafraîchissement (`argocd.argoproj.io/refresh=normal`), l'application repasse en `Synced / Healthy`. Le Rollout, lui, reste en `Degraded` tant que Git contient la 2.1.0 : pour que Git et le cluster soient de nouveau alignés, il faut une PR qui revient à la 2.0.0 (ou qui corrige la 2.1.0).
+- La 2.1.0 passe sa sonde `/health` : Kubernetes la considère comme saine. Seul le trafic réel révèle le défaut : 4 réponses en HTTP 500 sur les 10 qu'elle a servies (40 % d'échec).
+- Grâce au palier de 25 %, seules **4 requêtes sur 40 (10 %)** ont échoué côté utilisateurs, pendant environ **1 min 20 s** (de 15:55:48 à 15:57:09).
+- **Et après l'abort ?** Le trafic est protégé, mais rien n'est réglé : Git demande toujours la 2.1.0. Argo CD affiche **Synced** (le Rollout correspond à Git, le self-heal n'a rien à corriger) et **Degraded** (l'état voulu n'est pas atteint). Le Rollout reste bloqué avec `Updated: 0` tant qu'on ne corrige pas Git. L'`abort` est un frein d'urgence ; la correction, c'est le **revert par PR**.
 
-![Application Healthy après rafraîchissement](docs/images/canary-210-refresh-healthy.png)
+### Blue-Green ou Canary pour TaskFlow ?
 
-### Journal des déploiements de l'après-midi
+**Canary**, pour les mises à jour courantes de TaskFlow.
 
-| Heure | Action | Commit / PR | Résultat |
-|---|---|---|---|
-| 14:48:08 | Merge Blue-Green | PR #6 (`234541b`) | Rollout BlueGreen en 1.0.0, Healthy |
-| 14:55:09 | Merge image 1.1.0 | PR #7 (`5e870f3`) | Pause : 1.0.0 active, 1.1.0 en preview |
-| 14:56:32 | `kubectl argo rollouts promote` | — | Bascule instantanée en 1.1.0 |
-| 15:03:30 | Merge stratégie Canary | PR #8 (`4fe3e89`) | Rollout Canary en 1.1.0 |
-| 15:12:40 | Merge image 2.0.0 | `a3708f2` | Pause à 25 % (1 pod sur 4) |
-| 15:13:46 / 15:14:11 | Deux `promote` | — | Déploiement complet en 2.0.0 |
-| 15:55:14 | Merge image 2.1.0 | `922cb3b` | Pause à 25 %, erreurs HTTP 500 |
-| 15:57:09 | Rollout abandonné | — | Retour à 4 pods en 2.0.0, application Degraded puis Healthy |
+**Sur le risque.** Le Blue-Green bascule 100 % du trafic d'un coup au `promote`. Si la 2.1.0 avait été déployée ainsi, environ 40 % de toutes les requêtes auraient échoué, jusqu'au retour arrière. Le service de preview ne protège que si quelqu'un le teste vraiment avant de promouvoir : sans trafic réel, un défaut comme celui de la 2.1.0, qui passe les sondes de santé, peut passer inaperçu. Le Canary expose la nouvelle version à une petite part du vrai trafic : 25 % ici, soit 10 % d'erreurs côté utilisateurs au lieu de 40 %. Le défaut a été repéré au premier palier et coupé par un `abort`.
+
+**Sur le coût.** Pendant la phase de vérification, le Blue-Green a fait tourner **8 pods** (deux versions complètes en parallèle), soit le double des ressources. Le Canary est resté à **4 pods** à chaque palier : il remplace progressivement les pods stables au lieu de les dupliquer.
+
+**Ce que le Blue-Green apporte quand même.** Une bascule et un retour arrière instantanés et totaux : aucune requête n'est servie par un mélange de versions. C'est préférable pour un changement incompatible entre versions (format d'API, schéma de base de données), où deux versions ne doivent pas répondre en même temps. Pour TaskFlow, dont les versions coexistent sans problème, cet avantage ne compense pas le double coût et l'exposition totale en cas de défaut.
+
+**Limite de notre Canary.** Sans maillage de service, la part de trafic suit la proportion de pods (25 % = 1 pod sur 4) et la répartition mesurée varie (30 % au lieu de 25 %, 80 % au lieu de 75 %). Les paliers ne peuvent pas descendre sous 1 pod, soit 25 % avec 4 replicas. Pour un canary plus fin, il faudrait plus de replicas ou un routage par un ingress ou un service mesh.
+
+---
+
+## Lab du jeudi matin : 2.0.0 → 2.1.0 → abort automatique → 2.2.0
+
+Le Canary intègre désormais une **analyse automatique** : au palier de 25 %, Argo Rollouts lance un test de charge k6 contre le service `taskflow-canary`, qui ne vise que la nouvelle version. Seuils exigés : moins de 2 % d'erreurs et p95 sous 250 ms. Si le test échoue, le déploiement est annulé sans intervention humaine.
+
+### A. L'étalon et l'analyse
+
+Nous avons d'abord mesuré la production en 2.0.0 avec `charge.sh`, pour disposer d'une référence :
+
+![Étalon k6 sur la 2.0.0](docs/images/etalon-k6-2.0.0.png)
+
+Puis la PR `feat/analyse-auto` a ajouté dans `apps/taskflow/` le Rollout avec analyse, l'AnalysisTemplate `robustesse-k6`, la ConfigMap `k6-robustesse` et le service `taskflow-canary`. Résultat : un Rollout, aucun Deployment, et aucun pod recréé.
+
+### B. L'incident 2.1.0
+
+Nous avons déployé la 2.1.0 sans intervenir. L'analyse k6 a échoué et le Rollout a été annulé automatiquement :
+
+![AnalysisRun en échec (2.1.0)](docs/images/analysisrun-failed-2.1.0.png)
+
+![Résumé k6 en échec (2.1.0)](docs/images/k6-failed-2.1.0.png)
+
+Après le revert de la 2.1.0, nous avons déployé la 2.2.0. L'analyse a réussi et le Rollout est monté seul jusqu'à 100 % :
+
+![AnalysisRun en succès (2.2.0)](docs/images/analysisrun-successful-2.2.0.png)
+
+![Résumé k6 en succès (2.2.0)](docs/images/k6-successful-2.2.0.png)
+
+Analyse complète de l'incident : [`docs/postmortem-2.1.0.md`](docs/postmortem-2.1.0.md)
+
+### Journal des déploiements
+
+Heures de Paris. Sources : `git log`, événements Argo CD et Argo Rollouts, logs des Jobs k6.
+
+| Heure | Action | Commit | Approuvée par | Version | État | Observation |
+|---|---|---|---|---|---|---|
+| ≈ 11:12 | Étalon : `charge.sh` sur `http://taskflow` | — | — | 2.0.0 | Healthy | 730 requêtes, 0,00 % d'erreurs, p95 = 7,93 ms |
+| 11:16:26 | Merge PR `feat/analyse-auto` | `64e15fd` | IB432 | 2.0.0 | Healthy, step 7/7 | AnalysisTemplate, ConfigMap k6 et `taskflow-canary` créés. Un Rollout, aucun Deployment |
+| 11:27:08 | Merge PR image 2.1.0 | `67af830` | IB432 | 2.1.0 | Canary 25 % à 11:27:16, AnalysisRun à 11:27:36 | — |
+| 11:28:13 | **Abort automatique** | — | — | 2.0.0 servie | AnalysisRun Failed, Rollout Degraded, Argo CD Synced + Degraded | k6 : 31 % d'erreurs, p95 = 307,57 ms |
+| 11:40:14 | Merge revert de la 2.1.0 | `5d06c50` | IB432 | 2.0.0 | Healthy à 11:40:45 (revision 7) | Aucun pod recréé |
+| 11:44:21 | Merge PR image 2.2.0 | `21c8947` | IB432 | 2.2.0 | Canary 25 % à 11:44:51, AnalysisRun à 11:45:11 | — |
+| 11:45:48 | **AnalysisRun Successful** | — | — | 2.2.0 | Step 3/7, montée à 50 % | k6 : 0,00 % d'erreurs, p95 = 11,25 ms |
+| ≈ 11:47 | Fin de la montée | — | — | 2.2.0 | Healthy, step 7/7, Synced + Healthy | 4 pods en 2.2.0 |
