@@ -22,14 +22,21 @@ CVE-2026-54283 exp:2026-11-15
 
 # --- urllib3 1.26.20 (tirée par requests 2.25.1) ---
 # Failles du client HTTP (décompression, redirections, proxy HTTPS).
-# ATTENTION : requests est importé par app/notifications.py. L'application peut donc
-# faire des requêtes HTTP sortantes, et ces failles sont potentiellement exploitables.
-# Exception courte, le temps d'analyser l'usage réel de notifications.py
-# (URL appelée, redirections, proxy) et de décider : correction en amont ou maintien justifié.
+# requests n'est utilisé que par app/notifications.py : notify() envoie un message vers un
+# webhook (Slack, Teams) à chaque création de tâche (app/main.py:87), mais retourne
+# immédiatement si NOTIFY_WEBHOOK_URL est vide, sans aucune requête sortante.
+# Vérifié le 2026-10-15 :
+#   - valeur par défaut vide : os.getenv("NOTIFY_WEBHOOK_URL", "") dans app/settings.py ;
+#   - variable absente de apps/taskflow/rollout.yaml ;
+#   - variable absente des pods en production (kubectl exec ... env).
+# Le code qui utilise urllib3 n'est donc jamais exécuté en production.
+# CONDITION : cette exception devient invalide dès que NOTIFY_WEBHOOK_URL est défini.
+# Comme notify() est appelée à chaque création de tâche, l'exposition serait immédiate :
+# toute PR qui active les notifications doit d'abord obtenir une image corrigée.
 # Correction attendue : urllib3 >= 2.8.0 (requests récent), ou suppression de requests si inutile.
-CVE-2025-66418 exp:2026-10-22
-CVE-2025-66471 exp:2026-10-22
-CVE-2026-21441 exp:2026-10-22
-CVE-2026-44431 exp:2026-10-22
-CVE-2026-97687 exp:2026-10-22
-CVE-2026-97689 exp:2026-10-22
+CVE-2025-66418 exp:2026-11-15
+CVE-2025-66471 exp:2026-11-15
+CVE-2026-21441 exp:2026-11-15
+CVE-2026-44431 exp:2026-11-15
+CVE-2026-97687 exp:2026-11-15
+CVE-2026-97689 exp:2026-11-15
